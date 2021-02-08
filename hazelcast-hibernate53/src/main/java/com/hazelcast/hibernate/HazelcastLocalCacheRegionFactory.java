@@ -23,6 +23,8 @@ import org.hibernate.cache.spi.CacheKeysFactory;
 import org.hibernate.cache.spi.support.RegionNameQualifier;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 
+import java.util.List;
+
 /**
  * Simple RegionFactory implementation to return Hazelcast based local Region implementations
  */
@@ -83,5 +85,9 @@ public class HazelcastLocalCacheRegionFactory extends AbstractHazelcastCacheRegi
         return instance == null
           ? Clock.currentTimeMillis()
           : HazelcastTimestamper.nextTimestamp(instance);
+    }
+
+    public List<LocalRegionCache> getLocalRegionCaches() {
+        return this.localRegionCaches;
     }
 }

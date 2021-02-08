@@ -37,7 +37,7 @@ import static java.lang.System.getenv;
  *
  * @since 2.1.2
  */
-class PhoneHomeService {
+public class PhoneHomeService {
 
     private static final String SYS_PHONE_HOME_ENABLED = "hazelcast.phone.home.enabled";
     private static final String ENV_PHONE_HOME_ENABLED = "HZ_PHONE_HOME_ENABLED";

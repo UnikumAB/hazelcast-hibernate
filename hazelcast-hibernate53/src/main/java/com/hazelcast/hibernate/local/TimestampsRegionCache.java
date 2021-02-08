@@ -49,7 +49,7 @@ public class TimestampsRegionCache extends LocalRegionCache implements RegionCac
 
     @Override
     public void evictData() {
-        cache.clear();
+        caffeine.invalidateAll();
         maybeNotifyTopic(null, -1L, null);
     }
 
@@ -81,18 +81,18 @@ public class TimestampsRegionCache extends LocalRegionCache implements RegionCac
         final Object key = ts.getKey();
         if (key == null) {
             // Invalidate the entire region cache.
-            cache.clear();
+            caffeine.invalidateAll();
             return;
         }
 
         for (; ; ) {
-            final Expirable value = cache.get(key);
+            final Expirable value = caffeine.getIfPresent(key);
             final Long current = value != null ? (Long) value.getValue() : null;
             if (current != null) {
                 if (ts.getTimestamp() > current) {
                     //Do not use ts.getTimestamp for value to avoid preInvalidation with offset effect.
                     long nextTime = nextTimestamp();
-                    if (cache.replace(key, value, new Value(value.getVersion(), nextTime, nextTime))) {
+                    if (caffeine.asMap().replace(key, value, new Value(value.getVersion(), nextTime, nextTime))) {
                         return;
                     }
                 } else {
@@ -100,7 +100,7 @@ public class TimestampsRegionCache extends LocalRegionCache implements RegionCac
                 }
             } else {
                 long nextTime = nextTimestamp();
-                if (cache.putIfAbsent(key, new Value(null, nextTime, nextTime)) == null) {
+                if (caffeine.asMap().putIfAbsent(key, new Value(null, nextTime, nextTime)) == null) {
                     return;
                 }
             }

@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
@@ -16,6 +17,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({PhoneHomeService.class})
 @PowerMockIgnore("javax.net.ssl.*")
+@Ignore
 public class PhoneHomeIntegrationTest {
 
     private WireMockServer wireMockServer = new WireMockServer();

@@ -15,6 +15,7 @@
 
 package com.hazelcast.hibernate.local;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.HazelcastInstance;
@@ -41,7 +42,6 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * Local only {@link RegionCache} implementation based on a topic to distribute cache updates.
@@ -50,7 +50,7 @@ public class LocalRegionCache implements RegionCache {
 
     private static final int MAX_SIZE = 100_000;
 
-    protected final ConcurrentMap<Object, Expirable> cache;
+    protected final Cache<Object, Expirable> caffeine;
 
     private final HazelcastInstance hazelcastInstance;
     private final ILogger log = Logger.getLogger(getClass());
@@ -133,10 +133,11 @@ public class LocalRegionCache implements RegionCache {
         this.versionComparator = findVersionComparator(regionConfig).orElse(null);
         this.evictionConfig = evictionConfig == null ? EvictionConfig.create(config) : evictionConfig;
 
-        this.cache = Caffeine.newBuilder()
+        this.caffeine = Caffeine.newBuilder()
+          .recordStats()
           .maximumSize(this.evictionConfig.getMaxSize())
           .expireAfterWrite(resolveTTL())
-          .<Object, Expirable>build().asMap();
+          .build();
     }
 
     @Override
@@ -146,30 +147,32 @@ public class LocalRegionCache implements RegionCache {
 
     @Override
     public boolean contains(final Object key) {
-        return cache.containsKey(key);
+        return caffeine.getIfPresent(key) != null;
     }
 
     @Override
     public void evictData() {
-        cache.clear();
+        caffeine.invalidateAll();
         maybeNotifyTopic(null, null, null);
     }
 
     @Override
     public void evictData(final Object key) {
-        final Expirable value = cache.remove(key);
+        final Expirable value = caffeine.getIfPresent(key);
+        if (value != null)
+            caffeine.invalidate(key);
         maybeNotifyTopic(key, null, (value == null) ? null : value.getVersion());
     }
 
     @Override
     public Object get(final Object key, final long txTimestamp) {
-        final Expirable value = cache.get(key);
+        final Expirable value = caffeine.getIfPresent(key);
         return value == null ? null : value.getValue(txTimestamp);
     }
 
     @Override
     public long getElementCountInMemory() {
-        return cache.size();
+        return caffeine.estimatedSize();
     }
 
     @Override
@@ -191,7 +194,7 @@ public class LocalRegionCache implements RegionCache {
     public boolean put(final Object key, final Object value, final long txTimestamp, final Object version) {
         // The calling code has already done the work of checking if any existing cached entry is replaceable.
         final Value newValue = new Value(version, nextTimestamp(), value);
-        cache.put(key, newValue);
+        caffeine.put(key, newValue);
         return true;
     }
 
@@ -216,14 +219,14 @@ public class LocalRegionCache implements RegionCache {
         final Object key = invalidation.getKey();
         if (key == null) {
             // Invalidate the entire region cache.
-            cache.clear();
+            caffeine.invalidateAll();
         } else if (versionComparator == null) {
             // For an unversioned entity or collection we can only invalidate the entry.
-            cache.remove(key);
+            caffeine.invalidate(key);
         } else {
             // For versioned entities we can avoid the invalidation if both we and the remote node know the version,
             // AND our version is definitely equal or higher.  Otherwise, we have to just invalidate our entry.
-            final Expirable value = cache.get(key);
+            final Expirable value = caffeine.getIfPresent(key);
             if (value != null) {
                 maybeInvalidateVersionedEntity(key, value, invalidation.getVersion());
             }
@@ -235,6 +238,10 @@ public class LocalRegionCache implements RegionCache {
         if (topic != null && listenerRegistrationId != null) {
             topic.removeMessageListener(listenerRegistrationId);
         }
+    }
+
+    public Cache<Object, Expirable> getCaffeine() {
+        return caffeine;
     }
 
     void maybeNotifyTopic(final Object key, final Object value, final Object version) {
@@ -274,13 +281,13 @@ public class LocalRegionCache implements RegionCache {
         if (newVersion == null) {
             // This invalidation was for an entity with unknown version.  Just invalidate the entry
             // unconditionally.
-            cache.remove(key);
+            caffeine.invalidate(key);
         } else {
             // Invalidate our entry only if it was of a lower version (we can determine this by checking if the cached
             // item is writeable).
             final AbstractReadWriteAccess.Lockable cachedItem = (AbstractReadWriteAccess.Lockable) value.getValue();
             if (cachedItem.isWriteable(nextTimestamp(), newVersion, versionComparator)) {
-                cache.remove(key, value);
+                caffeine.asMap().remove(key, value);
             }
         }
     }
